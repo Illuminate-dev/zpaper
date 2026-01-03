@@ -1,19 +1,25 @@
 const rl = @import("raylib");
 const std = @import("std");
+const builtin = @import("builtin");
 const constants = @import("constants.zig");
 
 pub const Wallpaper = struct {
     allocator: std.mem.Allocator,
     path: []const u8,
+    full_path: []const u8,
     thumbnail_image: rl.Image = undefined,
     texture: rl.Texture = undefined,
     x: i32 = 0,
     y: i32 = 0,
 
     pub fn open(allocator: std.mem.Allocator, path: []const u8) !Wallpaper {
+        const wall_dir = try constants.getWallpaperDir(allocator);
+        defer allocator.free(wall_dir);
+        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ wall_dir, path });
         const w: Wallpaper = .{
             .allocator = allocator,
             .path = path,
+            .full_path = full_path,
         };
 
         return w;
@@ -21,17 +27,16 @@ pub const Wallpaper = struct {
 
     pub fn deinit(self: *Wallpaper) void {
         self.allocator.free(self.path);
+        self.allocator.free(self.full_path);
         self.texture.unload();
         self.thumbnail_image.unload();
     }
 
     pub fn loadImage(self: *Wallpaper) !void {
-        const wall_dir = try constants.getWallpaperDir(self.allocator);
-        defer self.allocator.free(wall_dir);
-        const full_path = try std.fmt.allocPrintSentinel(self.allocator, "{s}/{s}", .{ wall_dir, self.path }, 0);
-        defer self.allocator.free(full_path);
+        const full_pathZ = try std.fmt.allocPrintSentinel(self.allocator, "{s}", .{self.full_path}, 0);
+        defer self.allocator.free(full_pathZ);
 
-        self.thumbnail_image = try rl.loadImage(full_path);
+        self.thumbnail_image = try rl.loadImage(full_pathZ);
 
         const minLen = @min(self.thumbnail_image.height, self.thumbnail_image.width);
         const cr = rl.Rectangle{
@@ -80,6 +85,48 @@ pub const Wallpaper = struct {
             );
         } else {
             rl.drawTexture(self.texture, self.x, self.y, .white);
+        }
+    }
+
+    pub fn preview(self: Wallpaper) !void {
+        if (comptime builtin.target.os.tag == .macos) {
+            const script = try std.fmt.allocPrint(self.allocator, "open '{s}'", .{self.full_path});
+            defer self.allocator.free(script);
+            const argv = &[_][]const u8{
+                "/bin/sh",
+                "-c",
+                script,
+            };
+
+            const out = try std.process.Child.run(.{ .argv = argv, .allocator = self.allocator });
+            defer {
+                self.allocator.free(out.stdout);
+                self.allocator.free(out.stderr);
+            }
+        } else {
+            // nothing for now
+        }
+    }
+
+    pub fn setAsWallpaper(self: Wallpaper) !void {
+        if (comptime builtin.target.os.tag == .macos) {
+            const script = try std.fmt.allocPrint(self.allocator, "tell application \"System Events\" to tell every desktop to set picture to \"{s}\" as POSIX file", .{self.full_path});
+            defer self.allocator.free(script);
+            const osascript_args = &[_][]const u8{
+                "osascript",
+                "-e",
+                script,
+            };
+
+            const out = try std.process.Child.run(.{ .argv = osascript_args, .allocator = self.allocator });
+            defer {
+                self.allocator.free(out.stdout);
+                self.allocator.free(out.stderr);
+            }
+            std.debug.print("{s}\n", .{out.stdout});
+            std.debug.print("{s}\n", .{out.stderr});
+        } else {
+            // nothing for now
         }
     }
 };
