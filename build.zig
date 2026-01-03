@@ -30,6 +30,8 @@ pub fn build(b: *std.Build) void {
     const raygui = raylib_dep.module("raygui");
     const raylib_artifact = raylib_dep.artifact("raylib");
 
+    const known_folders = b.dependency("known_folders", .{}).module("known-folders");
+
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -51,6 +53,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "raylib", .module = raylib },
             .{ .name = "raygui", .module = raygui },
+            .{ .name = "known-folders", .module = known_folders },
         },
     });
 

@@ -1,12 +1,12 @@
 const std = @import("std");
 const rl = @import("raylib");
 const wp = @import("wallpaper.zig");
+const constants = @import("constants.zig");
 
-const DEFAULT_WIDTH = wp.THUMBNAIL_SIZE * 6;
-const DEFAULT_HEIGHT = wp.THUMBNAIL_SIZE * 3;
-
-pub fn createFiles() !void {
-    try std.fs.cwd().makePath(wp.CACHE_DIR);
+pub fn createFiles(allocator: std.mem.Allocator) !void {
+    const cachePath = try constants.getCacheDir(allocator);
+    defer allocator.free(cachePath);
+    try std.fs.cwd().makePath(cachePath);
 }
 
 pub fn run() !void {
@@ -14,10 +14,10 @@ pub fn run() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try createFiles();
+    try createFiles(allocator);
 
-    const screenWidth = DEFAULT_WIDTH;
-    const screenHeight = DEFAULT_HEIGHT;
+    const screenWidth = constants.DEFAULT_WIDTH;
+    const screenHeight = constants.DEFAULT_HEIGHT;
     rl.initWindow(screenWidth, screenHeight, "Zpaper");
     defer rl.closeWindow();
 
@@ -32,8 +32,8 @@ pub fn run() !void {
         wallpapers.deinit(allocator);
     }
 
-    const cardsPerRow = DEFAULT_WIDTH / wp.THUMBNAIL_SIZE;
-    // const rows = DEFAULT_HEIGHT / wp.THUMBNAIL_SIZE;
+    const cardsPerRow = constants.DEFAULT_WIDTH / constants.THUMBNAIL_SIZE;
+    // const rows = constants.DEFAULT_HEIGHT / constants..THUMBNAIL_SIZE;
 
     for (wallpapers.items, 0..) |*wall, i| {
         // load texture
@@ -41,8 +41,8 @@ pub fn run() !void {
         try wall.loadTexture();
 
         // set position
-        wall.x = @as(i32, @intCast(i % cardsPerRow * wp.THUMBNAIL_SIZE));
-        wall.y = @as(i32, @intCast(@divFloor(i, cardsPerRow) * wp.THUMBNAIL_SIZE));
+        wall.x = @as(i32, @intCast(i % cardsPerRow * constants.THUMBNAIL_SIZE));
+        wall.y = @as(i32, @intCast(@divFloor(i, cardsPerRow) * constants.THUMBNAIL_SIZE));
     }
 
     var hover: ?usize = null;
@@ -54,8 +54,8 @@ pub fn run() !void {
             const rec = rl.Rectangle{
                 .x = @as(f32, @floatFromInt(wall.x)),
                 .y = @as(f32, @floatFromInt(wall.y)),
-                .width = wp.THUMBNAIL_SIZE,
-                .height = wp.THUMBNAIL_SIZE,
+                .width = constants.THUMBNAIL_SIZE,
+                .height = constants.THUMBNAIL_SIZE,
             };
             if (rl.checkCollisionPointRec(rl.getMousePosition(), rec)) {
                 hover = i;
