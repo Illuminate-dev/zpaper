@@ -7,7 +7,8 @@ pub const Wallpaper = struct {
     allocator: std.mem.Allocator,
     path: []const u8,
     full_path: []const u8,
-    thumbnail_image: rl.Image = undefined,
+    image: rl.Image = undefined,
+    image_status: enum { Unloaded, Thumbnail, Full } = .Unloaded,
     texture: rl.Texture = undefined,
     x: i32 = 0,
     y: i32 = 0,
@@ -29,46 +30,51 @@ pub const Wallpaper = struct {
         self.allocator.free(self.path);
         self.allocator.free(self.full_path);
         self.texture.unload();
-        self.thumbnail_image.unload();
+        self.image.unload();
     }
 
-    pub fn loadImage(self: *Wallpaper) !void {
+    pub fn loadImageFull(self: *Wallpaper) !void {
         const full_pathZ = try std.fmt.allocPrintSentinel(self.allocator, "{s}", .{self.full_path}, 0);
         defer self.allocator.free(full_pathZ);
 
-        self.thumbnail_image = try rl.loadImage(full_pathZ);
+        self.image = try rl.loadImage(full_pathZ);
+        self.image_status = .Full;
+    }
 
-        const minLen = @min(self.thumbnail_image.height, self.thumbnail_image.width);
+    fn cropImageToThumbnail(image: *rl.Image) !void {
+        const minLen = @min(image.height, image.width);
         const cr = rl.Rectangle{
             .width = @as(f32, @floatFromInt(minLen)),
             .height = @as(f32, @floatFromInt(minLen)),
-            .x = @as(f32, @floatFromInt((self.thumbnail_image.width - minLen))) / 2.0,
-            .y = @as(f32, @floatFromInt((self.thumbnail_image.height - minLen))) / 2.0,
+            .x = @as(f32, @floatFromInt((image.width - minLen))) / 2.0,
+            .y = @as(f32, @floatFromInt((image.height - minLen))) / 2.0,
         };
 
-        self.thumbnail_image.crop(cr);
-        self.thumbnail_image.resize(constants.THUMBNAIL_SIZE, constants.THUMBNAIL_SIZE);
+        image.crop(cr);
+        image.resize(constants.THUMBNAIL_SIZE, constants.THUMBNAIL_SIZE);
     }
 
-    pub fn loadImageCached(self: *Wallpaper) !void {
+    pub fn loadThumbnailImageCached(self: *Wallpaper) !void {
         const cache_dir = try constants.getCacheDir(self.allocator);
         defer self.allocator.free(cache_dir);
         const cached_path = try std.fmt.allocPrintSentinel(self.allocator, "{s}/{s}", .{ cache_dir, std.fs.path.basename(self.path) }, 0);
         defer self.allocator.free(cached_path);
 
         if (rl.fileExists(cached_path)) {
-            self.thumbnail_image = try rl.loadImage(cached_path);
+            self.image = try rl.loadImage(cached_path);
         } else {
-            try self.loadImage();
-            _ = rl.exportImage(self.thumbnail_image, cached_path);
+            try self.loadImageFull();
+            try Wallpaper.cropImageToThumbnail(&self.image);
+            _ = rl.exportImage(self.image, cached_path);
         }
+        self.image_status = .Thumbnail;
     }
 
     pub fn loadTexture(self: *Wallpaper) !void {
-        self.texture = try rl.loadTextureFromImage(self.thumbnail_image);
+        self.texture = try rl.loadTextureFromImage(self.image);
     }
 
-    pub fn draw(self: Wallpaper, isHovered: bool) void {
+    pub fn draw(self: *Wallpaper, isHovered: bool) !void {
         if (isHovered) {
             const offset = (constants.THUMBNAIL_SIZE * (constants.HOVER_SCALE - 1)) / 2.0;
             const newX = @as(f32, @floatFromInt(self.x)) - offset;
@@ -88,24 +94,29 @@ pub const Wallpaper = struct {
         }
     }
 
-    pub fn preview(self: Wallpaper) !void {
-        if (comptime builtin.target.os.tag == .macos) {
-            const script = try std.fmt.allocPrint(self.allocator, "open '{s}'", .{self.full_path});
-            defer self.allocator.free(script);
-            const argv = &[_][]const u8{
-                "/bin/sh",
-                "-c",
-                script,
-            };
+    pub fn preview(self: *Wallpaper) !void {
+        rl.drawTexture(self.texture, 0, 0, .white);
 
-            const out = try std.process.Child.run(.{ .argv = argv, .allocator = self.allocator });
-            defer {
-                self.allocator.free(out.stdout);
-                self.allocator.free(out.stderr);
-            }
-        } else {
-            // nothing for now
-        }
+        // rl.drawTextureEx(
+        //     self.texture,
+        //     rl.Vector2{
+        //         .x = ,
+        //         .y = newY,
+        //     },
+        //     0.0,
+        //     1.2,
+        //     .white,
+        // );
+    }
+
+    pub fn isMouseOver(self: Wallpaper) bool {
+        const rec = rl.Rectangle{
+            .x = @as(f32, @floatFromInt(self.x)),
+            .y = @as(f32, @floatFromInt(self.y)),
+            .width = constants.THUMBNAIL_SIZE,
+            .height = constants.THUMBNAIL_SIZE,
+        };
+        return rl.checkCollisionPointRec(rl.getMousePosition(), rec);
     }
 
     pub fn setAsWallpaper(self: Wallpaper) !void {

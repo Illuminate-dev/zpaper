@@ -3,9 +3,9 @@ const rl = @import("raylib");
 const wp = @import("wallpaper.zig");
 const constants = @import("constants.zig");
 
-const SelectionMode = enum {
-    cursor,
-    keyboard,
+const State = union(enum) {
+    Preview: usize,
+    Selection: ?usize,
 };
 
 pub fn createFiles(allocator: std.mem.Allocator) !void {
@@ -44,82 +44,90 @@ pub fn run() !void {
 
     for (wallpapers.items, 0..) |*wall, i| {
         // load texture
-        try wall.loadImageCached();
-        try wall.loadTexture();
+        // try wall.loadThumbnailImageCached();
+        // try wall.loadTexture();
 
         // set position
         wall.x = @as(i32, @intCast(i % cards_per_row * constants.THUMBNAIL_SIZE));
         wall.y = @as(i32, @intCast(@divFloor(i, cards_per_row) * constants.THUMBNAIL_SIZE));
     }
 
-    var selection: ?usize = null;
+    var state = State{ .Selection = null };
 
     while (!rl.windowShouldClose()) {
-        if (rl.isKeyPressed(.left)) {
-            if (selection) |i| {
-                selection = if (i > 0) i - 1 else 0;
-            } else {
-                selection = 0;
-            }
-        } else if (rl.isKeyPressed(.right)) {
-            if (selection) |i| {
-                selection = if (i < wallpapers.items.len - 1) i + 1 else selection;
-            } else {
-                selection = 0;
-            }
-        } else if (rl.isKeyPressed(.up)) {
-            if (selection) |i| {
-                selection = if (i >= cards_per_row) i - cards_per_row else 0;
-            } else {
-                selection = 0;
-            }
-        } else if (rl.isKeyPressed(.down)) {
-            if (selection) |i| {
-                selection = if (i < wallpapers.items.len - cards_per_row) i + cards_per_row else if (i % cards_per_row >= wallpapers.items.len % cards_per_row) wallpapers.items.len - 1 else selection;
-            } else {
-                selection = 0;
-            }
-        } else if (rl.isKeyPressed(.enter) or rl.isKeyPressed(.space)) {
-            if (selection) |s| {
-                // try wallpapers.items[s].preview();
-                try wallpapers.items[s].setAsWallpaper();
-            }
-        }
-
-        // check mouse hover
-        const mouse_delta = rl.getMouseDelta();
-        if (mouse_delta.x != 0 or mouse_delta.y != 0) {
-            selection = null;
-            for (wallpapers.items, 0..) |wall, i| {
-                const rec = rl.Rectangle{
-                    .x = @as(f32, @floatFromInt(wall.x)),
-                    .y = @as(f32, @floatFromInt(wall.y)),
-                    .width = constants.THUMBNAIL_SIZE,
-                    .height = constants.THUMBNAIL_SIZE,
-                };
-                if (rl.checkCollisionPointRec(rl.getMousePosition(), rec)) {
-                    selection = i;
+        switch (state) {
+            .Selection => |*selection| {
+                if (rl.isKeyPressed(.left)) {
+                    if (selection.*) |i| {
+                        selection.* = if (i > 0) i - 1 else 0;
+                    } else {
+                        selection.* = 0;
+                    }
+                } else if (rl.isKeyPressed(.right)) {
+                    if (selection.*) |i| {
+                        selection.* = if (i < wallpapers.items.len - 1) i + 1 else selection.*;
+                    } else {
+                        selection.* = 0;
+                    }
+                } else if (rl.isKeyPressed(.up)) {
+                    if (selection.*) |i| {
+                        selection.* = if (i >= cards_per_row) i - cards_per_row else 0;
+                    } else {
+                        selection.* = 0;
+                    }
+                } else if (rl.isKeyPressed(.down)) {
+                    if (selection.*) |i| {
+                        selection.* = if (i < wallpapers.items.len - cards_per_row) i + cards_per_row else if (i % cards_per_row >= wallpapers.items.len % cards_per_row) wallpapers.items.len - 1 else selection.*;
+                    } else {
+                        selection.* = 0;
+                    }
+                } else if (selection.*) |s| {
+                    if (rl.isKeyPressed(.space) or (rl.isMouseButtonPressed(.left) and wallpapers.items[s].isMouseOver())) {
+                        state = State{ .Preview = s };
+                    }
                 }
-            }
+                // check mouse hover
+                const mouse_delta = rl.getMouseDelta();
+                if (mouse_delta.x != 0 or mouse_delta.y != 0) {
+                    selection.* = null;
+                    for (wallpapers.items, 0..) |wall, i| {
+                        if (wall.isMouseOver()) {
+                            selection.* = i;
+                        }
+                    }
+                }
+            },
+            .Preview => |preview| {
+                if (rl.isKeyPressed(.backspace) or rl.isKeyPressed(.space) or rl.isMouseButtonPressed(.right)) {
+                    state = State{ .Selection = preview };
+                }
+            },
         }
 
         rl.beginDrawing();
         defer rl.endDrawing();
         rl.clearBackground(.black);
 
-        for (wallpapers.items, 0..) |wall, i| {
-            // const nameZ = try allocator.dupeZ(u8, std.fs.path.basename(path));
-            // defer allocator.free(nameZ);
+        switch (state) {
+            .Selection => |selection| {
+                for (wallpapers.items, 0..) |*wall, i| {
+                    // const nameZ = try allocator.dupeZ(u8, std.fs.path.basename(path));
+                    // defer allocator.free(nameZ);
 
-            if (i != selection) {
-                wall.draw(false);
-            }
+                    if (i != selection) {
+                        try wall.draw(false);
+                    }
 
-            // rl.drawText(nameZ, 0, @as(i32, @intCast(i)) * 14, 12, .white);
-        }
+                    // rl.drawText(nameZ, 0, @as(i32, @intCast(i)) * 14, 12, .white);
+                }
 
-        if (selection) |i| {
-            wallpapers.items[i].draw(true);
+                if (selection) |i| {
+                    try wallpapers.items[i].draw(true);
+                }
+            },
+            .Preview => |i| {
+                try wallpapers.items[i].preview();
+            },
         }
 
         // Draw FPS counter
